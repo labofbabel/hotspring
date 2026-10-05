@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<!-- This Source Code Form is subject to the terms of the Mozilla Public
+     License, v. 2.0. If a copy of the MPL was not distributed with this
+     file, You can obtain one at https://mozilla.org/MPL/2.0/. -->
+<!-- Vendoring example: one <script> tag, no build step, no server, no font
+     files. Copy dist/hotspring.min.js into your project and point at it.
+     Opens fine from file://. -->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Hotspring · vendored build</title>
+<style>
+  body { font: 14px ui-monospace, Menlo, monospace; margin: 24px; background: #ddd; }
+  canvas { background: #fff; image-rendering: pixelated; display: block; margin-top: 12px; }
+</style>
+</head>
+<body>
+<div id="status">loading…</div>
+<script src="../../dist/hotspring.min.js"></script>
+<script>
+  (async () => {
+    const { Document, registerBundledFonts } = Hotspring;
+    await registerBundledFonts(); // Pixel Operator, embedded in the bundle
+
+    const doc = new Document({ width: 384, spacing: 8 })
+      .text('HOTSPRING', { font: 'Pixel Operator', size: 32, align: 'center' })
+      .hr({ thickness: 3 })
+      .table('Item,Qty\nWidget,2\nGizmo,1', { header: true })
+      .text('mono 0123456789', { font: 'Pixel Operator Mono', size: 16 })
+      .qr('https://example.com', { ecl: 'M' })
+      .cut();
+
+    document.body.append(doc.toCanvas());
+    const bytes = doc.toBytes(); // Uint8Array of ESC/POS — send to your transport
+    document.getElementById('status').textContent = `ok — ${bytes.length} ESC/POS bytes`;
+  })().catch((e) => { document.getElementById('status').textContent = 'error: ' + e.message; });
+</script>
+</body>
+</html>

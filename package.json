@@ -1,0 +1,44 @@
+{
+  "name": "hotspring",
+  "version": "0.2.0",
+  "description": "Vanilla-JS library for composing thermal-printer documents (text, images, layout) and rendering them to 1-bit ESC/POS raster. Canvas-based, zero runtime dependencies.",
+  "type": "module",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./transports/cups": "./src/transports/cups.js",
+    "./dist/*": "./dist/*",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "src",
+    "dist",
+    "examples",
+    "README.md",
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md"
+  ],
+  "scripts": {
+    "prestart": "npm run build",
+    "start": "node server.mjs",
+    "build": "node scripts/build.mjs",
+    "embed-fonts": "node scripts/embed-fonts.mjs",
+    "test": "node test/smoke.mjs && npm run build && node test/dist.mjs"
+  },
+  "keywords": [
+    "thermal-printer",
+    "escpos",
+    "esc-pos",
+    "pos80",
+    "receipt-printer",
+    "dithering",
+    "1-bit",
+    "canvas",
+    "netumscan"
+  ],
+  "author": "Lior Ben-Gai",
+  "license": "MPL-2.0",
+  "devDependencies": {
+    "esbuild": "^0.28.2"
+  }
+}

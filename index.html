@@ -1,0 +1,1144 @@
+<!DOCTYPE html>
+<!-- Copyright (c) 2026 Lior Ben-Gai
+     This Source Code Form is subject to the terms of the Mozilla Public
+     License, v. 2.0. If a copy of the MPL was not distributed with this
+     file, You can obtain one at https://mozilla.org/MPL/2.0/. -->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Hotspring · workbench</title>
+<!-- UI font only (never printed). Loaded from Google Fonts; offline it falls
+     back to the local monospace stack in --font. -->
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@100..800&display=swap" />
+<style>
+  /* ---- Fonts -----------------------------------------------------------
+     UI is JetBrains Mono (Google Fonts, see <head>) with a local monospace
+     fallback. The print fonts are embedded in the library and registered from
+     JS — the canvas needs them *loaded* before it paints. */
+
+  /* ---- Theme parameters -------------------------------------------------
+     Two tones (ground / ink) plus dim + line derived from them. Everything
+     else — spacing, sizing, outlines — comes from these few vars. */
+  :root {
+    --ground:    #16181a;   /* base surface */
+    --ground-2:  #1e2124;   /* raised surface (cards, menus, inputs) */
+    --ink:       #e6e8ea;   /* primary text / marks */
+    --ink-dim:   #7c8288;   /* labels, units, secondary */
+    --line:      #3a3f44;   /* 1px outlines */
+    --line-hot:  var(--ink);
+    --danger:    #d8615a;
+
+    --u:  8px;                       /* spacing unit — everything scales off it */
+    --pad: var(--u);
+    --gap: var(--u);
+    --gap-lg: calc(var(--u) * 2);
+    --bw: 1px;                       /* outline width */
+    --radius: 0;                     /* brutalist: no rounding anywhere */
+    --font: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'DejaVu Sans Mono', 'Liberation Mono', monospace;
+    --fs: 12px;
+    --fs-sm: 11px;
+    --fs-lg: 13px;
+    --ctl-h: 24px;                   /* control height */
+    --label-w: 68px;                 /* control label column */
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    background: var(--ground); color: var(--ink);
+    font-family: var(--font); font-size: var(--fs); line-height: 1.45;
+    margin: 0; padding: var(--gap-lg);
+    min-height: 100vh; display: flex; flex-direction: column;
+    -webkit-font-smoothing: antialiased;
+  }
+  h1 {
+    font-size: var(--fs-lg); font-weight: 700; margin: 0 0 var(--gap);
+    text-transform: uppercase; letter-spacing: 0.12em;
+  }
+  h1::before { content: '// '; color: var(--ink-dim); }
+  .hint { color: var(--ink-dim); font-size: var(--fs-sm); }
+  #head { margin-bottom: var(--gap-lg); }
+
+  /* ---- Layout ---------------------------------------------------------- */
+  #work { position: relative; display: flex; gap: calc(var(--u) * 7); align-items: flex-start; margin-bottom: calc(var(--u) * 6); }
+  #paper { flex: none; }
+  #lane { position: relative; flex: 1; min-width: 300px; }
+  #wires { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; z-index: 0; }
+
+  #bar { display: flex; gap: var(--gap-lg); align-items: center; margin-bottom: var(--gap); flex-wrap: wrap; }
+  #bar .sp { flex: 1; }
+  #stack { background: #fff; border: var(--bw) solid var(--line); }
+  #stack canvas { display: block; image-rendering: pixelated; width: 100%; }
+  #stack:empty::after {
+    content: '[ empty roll ]'; display: block; color: #b9bcc0; text-align: center;
+    padding: calc(var(--u) * 5) 0; font-size: var(--fs-sm); letter-spacing: 0.1em;
+  }
+  #addbar { display: flex; gap: var(--gap); margin-top: var(--gap); position: relative; }
+  #msg { margin-top: var(--gap); min-height: 1.3em; font-size: var(--fs-sm); white-space: pre-line; }
+  .ok { color: var(--ink); } .ok::before { content: 'OK '; color: var(--ink-dim); }
+  .err { color: var(--danger); } .err::before { content: 'ERR '; }
+
+  /* ---- Controls -------------------------------------------------------- */
+  select, button, input, textarea {
+    font: inherit; font-size: var(--fs-sm); color: var(--ink);
+    background: var(--ground); border: var(--bw) solid var(--line);
+    border-radius: var(--radius); padding: 0 var(--u); height: var(--ctl-h);
+  }
+  textarea { height: auto; padding: var(--u); resize: vertical; }
+  select { appearance: none; padding-right: calc(var(--u) * 2.5);
+    background-image: linear-gradient(45deg, transparent 50%, var(--ink-dim) 50%),
+                      linear-gradient(135deg, var(--ink-dim) 50%, transparent 50%);
+    background-position: right 10px center, right 6px center;
+    background-size: 4px 4px, 4px 4px; background-repeat: no-repeat; }
+  button {
+    cursor: pointer; text-transform: uppercase; letter-spacing: 0.08em;
+    padding: 0 calc(var(--u) * 1.5);
+  }
+  button:hover { background: var(--ink); color: var(--ground); border-color: var(--ink); }
+  button:disabled { cursor: not-allowed; opacity: 0.38; }
+  button:disabled:hover { background: var(--ground); color: var(--ink); border-color: var(--line); }
+  button.primary { border-color: var(--ink); }
+  button.danger { color: var(--danger); border-color: var(--danger); }
+  button.danger:hover { background: var(--danger); color: var(--ground); }
+  input:focus, textarea:focus, select:focus { outline: var(--bw) solid var(--ink); outline-offset: -2px; }
+
+  /* Square, 2-tone range slider */
+  input[type=range] { -webkit-appearance: none; appearance: none; height: var(--ctl-h);
+    background: transparent; border: none; padding: 0; }
+  input[type=range]::-webkit-slider-runnable-track {
+    height: var(--bw); background: var(--line); }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 3px; height: 13px; margin-top: -6px;
+    background: var(--ink); border: none; border-radius: 0; cursor: ew-resize; }
+  input[type=range]::-moz-range-track { height: var(--bw); background: var(--line); }
+  input[type=range]::-moz-range-thumb { width: 3px; height: 13px; background: var(--ink);
+    border: none; border-radius: 0; cursor: ew-resize; }
+
+  /* ---- Cards ----------------------------------------------------------- */
+  .card {
+    position: absolute; left: 0; right: 0; z-index: 1;
+    border: var(--bw) solid var(--line); background: var(--ground-2);
+    padding: var(--pad);
+  }
+  .card label { display: flex; align-items: center; gap: var(--gap); font-size: var(--fs-sm); margin: var(--u) 0; }
+  .card label > span { width: var(--label-w); flex: none; color: var(--ink-dim); text-transform: uppercase; letter-spacing: 0.06em; }
+  .card textarea { width: 100%; min-height: calc(var(--u) * 9); }
+  .card select, .card input[type=range] { flex: 1; min-width: 0; }
+  .card .actions { display: flex; gap: var(--gap); justify-content: flex-end; margin-top: var(--gap); }
+
+  /* Hatched drag handle — the module is what you grab. */
+  .card .grip {
+    display: flex; align-items: center; gap: var(--gap);
+    margin: calc(var(--pad) * -1) calc(var(--pad) * -1) var(--pad);
+    padding: calc(var(--u) * 0.75) var(--pad);
+    cursor: grab; border-bottom: var(--bw) solid var(--line);
+    background-image: repeating-linear-gradient(45deg,
+      var(--line) 0 1px, transparent 1px 6px);
+  }
+  .card .grip h2 {
+    margin: 0; font-size: var(--fs-sm); font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.12em; color: var(--ink);
+    background: var(--ground-2); padding: 0 var(--u);
+  }
+  .card.dragging { opacity: 0.55; outline: var(--bw) dashed var(--ink); }
+  .card.dragging .grip { cursor: grabbing; }
+
+  /* ---- Unit slider ----------------------------------------------------- */
+  .uslider { display: flex; align-items: center; gap: var(--gap); font-size: var(--fs-sm); margin: var(--u) 0; }
+  .uslider > span:first-child { width: var(--label-w); flex: none; color: var(--ink-dim); text-transform: uppercase; letter-spacing: 0.06em; }
+  .uslider input[type=range] { flex: 1; min-width: 40px; }
+  .uslider .numin { width: calc(var(--u) * 6); flex: none; text-align: right; padding: 0 var(--u); }
+  .uslider .unit { flex: none; min-width: calc(var(--u) * 8); color: var(--ink-dim); }
+
+  /* ---- Add menu -------------------------------------------------------- */
+  #addmenu {
+    position: absolute; top: 100%; left: 0; margin-top: calc(var(--bw) * -1); z-index: 20;
+    border: var(--bw) solid var(--line); background: var(--ground-2); min-width: 190px; padding: 0;
+  }
+  #addmenu button {
+    display: block; width: 100%; text-align: left; border: none;
+    border-bottom: var(--bw) solid var(--line); height: auto; padding: var(--u) var(--pad);
+  }
+  #addmenu button:last-child { border-bottom: none; }
+  #addmenu button::before { content: '+ '; color: var(--ink-dim); }
+  #addmenu button:hover::before { color: var(--ground); }
+
+  /* ---- Drop zone ------------------------------------------------------- */
+  .drop {
+    border: var(--bw) dashed var(--line); padding: calc(var(--u) * 2.5); text-align: center;
+    color: var(--ink-dim); cursor: pointer; font-size: var(--fs-sm); margin-bottom: var(--gap);
+    text-transform: uppercase; letter-spacing: 0.06em;
+  }
+  .drop.over { border-color: var(--ink); color: var(--ink); }
+  #lane:empty::after { content: 'no modules — use [+ add component]'; color: var(--ink-dim); font-size: var(--fs-sm); }
+
+  /* ---- Footer ---------------------------------------------------------- */
+  footer {
+    margin-top: auto; padding-top: var(--gap);
+    border-top: var(--bw) solid var(--line);
+    color: var(--ink-dim); font-size: var(--fs-sm);
+    display: flex; gap: var(--gap-lg); flex-wrap: wrap; align-items: baseline;
+  }
+  footer a { color: var(--ink-dim); text-decoration: none; border-bottom: var(--bw) solid var(--line); }
+  footer a:hover { color: var(--ink); border-bottom-color: var(--ink); }
+  footer .sp { flex: 1; }
+  dialog {
+    width: min(760px, calc(100vw - 32px)); padding: calc(var(--u) * 4);
+    color: var(--ink); background: var(--paper); border: var(--bw) solid var(--ink);
+    box-shadow: 8px 8px 0 var(--ink); font-family: var(--font);
+  }
+  dialog::backdrop { background: rgba(0, 0, 0, 0.55); }
+  dialog h2 { margin: 0 0 var(--gap); font-size: var(--fs-lg); }
+  dialog textarea {
+    box-sizing: border-box; width: 100%; min-height: 360px; resize: vertical;
+    margin: var(--gap) 0; padding: calc(var(--u) * 2); font: 13px/1.4 var(--font);
+    color: var(--ink); background: var(--paper); border: var(--bw) solid var(--ink);
+  }
+  dialog .actions { display: flex; justify-content: flex-end; gap: var(--gap); }
+  #pasteerror { min-height: 1.4em; color: var(--err); }
+</style>
+</head>
+<body>
+  <header id="head">
+    <h1>hotspring &mdash; workbench</h1>
+    <div id="bar">
+      <label class="hint">Width
+        <select id="width">
+          <option value="576">576 / 80mm</option>
+          <option value="512">512 / 76mm</option>
+          <option value="384">384 / 58mm</option>
+        </select>
+      </label>
+      <span id="globals"></span>
+      <span class="sp"></span>
+      <button id="print" class="primary" disabled>Print</button>
+      <button id="reset" disabled>Reset</button>
+      <button id="canceljob" class="danger" hidden disabled>Cancel job</button>
+      <button id="copy">Copy code</button>
+      <button id="paste">Paste code</button>
+      <button id="png">Export PNG</button>
+      <input type="file" id="fontfile" accept=".ttf,.otf,.woff,.woff2,font/*" multiple hidden />
+    </div>
+    <p class="hint" id="state" role="status" aria-live="polite">state: checking server…</p>
+    <div id="msg" role="status" aria-live="polite"></div>
+  </header>
+  <div id="work">
+    <div id="paper">
+    <div id="stack"></div>
+    <div id="addbar">
+      <button id="add">+ Add component</button>
+      <div id="addmenu" hidden></div>
+    </div>
+    </div>
+    <div id="lane"></div>
+    <svg id="wires"></svg>
+  </div>
+
+  <dialog id="pastedialog">
+    <h2>Load template code</h2>
+    <p class="hint">Paste code created by Hotspring. Loading replaces the current template. Pasted code is parsed as data and never executed.</p>
+    <textarea id="pastecode" aria-label="Hotspring template code" spellcheck="false" placeholder="Paste code copied from Hotspring here"></textarea>
+    <div id="pasteerror" role="alert"></div>
+    <div class="actions">
+      <button id="cancelpaste" type="button">Cancel</button>
+      <button id="loadcode" type="button" class="primary">Load template</button>
+    </div>
+  </dialog>
+
+  <footer>
+    <span>hotspring.js &mdash; zero-dependency ESC/POS document renderer</span>
+    <span class="sp"></span>
+    <span id="footinfo"></span>
+    <a href="https://github.com/labofbabel/hotspring" target="_blank" rel="noopener">github</a>
+    <span>MPL-2.0</span>
+    <span>&copy; Lior Ben-Gai</span>
+  </footer>
+
+<script type="module">
+  import { Document, TextBlock, CutBlock, SpacerBlock, HrBlock, ImageBlock, QrBlock, TableBlock, CalibrationBlock,
+           registerFont, registerFontFromFile, registerBundledFonts, listSystemFonts,
+           parseTemplateCode } from './dist/hotspring.esm.min.js'; // the vendorable build (npm run build)
+
+  const $ = (id) => document.getElementById(id);
+
+  // The raw-print bridge is intentionally same-origin and loopback-only.
+  const API = '';
+
+  const doc = new Document({ width: 576 });
+  const stack = $('stack'), lane = $('lane'), work = $('work');
+  const items = []; // { block, canvasEl, card }
+  let spacingControl, cutFeedControl;
+  const printerState = {
+    reachable: false, configured: false, connected: null, offline: false, busy: false, recentJob: null,
+  };
+
+  function updateActions() {
+    const ready = printerState.reachable && printerState.configured
+      && printerState.connected !== false && !printerState.offline;
+    $('print').disabled = printerState.busy || !ready || !items.length;
+    $('reset').disabled = printerState.busy || !printerState.reachable || !printerState.configured;
+    const cancelable = printerState.recentJob?.id
+      && ['accepted', 'queued', 'printing', 'waiting-for-printer'].includes(printerState.recentJob.state);
+    $('canceljob').hidden = !cancelable;
+    $('canceljob').disabled = printerState.busy || !cancelable;
+  }
+
+  // Any size change anywhere (an image finishing load, a card expanding, a font
+  // arriving) must re-aim the connectors — otherwise they only corrected on window
+  // resize. Declared before first use: a single rAF can still read pre-layout
+  // metrics (and rAF is throttled in some embedded views), so we go double-rAF
+  // with a timer fallback — whichever lands first wins, the rest are no-ops.
+  let relayoutPending = false;
+  function scheduleRelayout() {
+    if (relayoutPending) return;
+    relayoutPending = true;
+    const run = () => { if (!relayoutPending) return; relayoutPending = false; relayout(); };
+    requestAnimationFrame(() => requestAnimationFrame(run));
+    setTimeout(run, 50);
+  }
+  // Observe the preview stack and each card (never #lane — relayout sets its
+  // height, which would feed back into the observer).
+  const sizeWatcher = new ResizeObserver(scheduleRelayout);
+  sizeWatcher.observe(stack);
+
+  // Register the print fonts with the library. registerFont() resolves only once
+  // the face is actually loaded, so the canvas can never paint a silent fallback.
+  // `grid: 8` marks a bitmap font whose sizes snap to its 8px design grid.
+  // Live list — custom/system fonts get appended and every font <select> refreshes.
+  const FONTS = ['Pixel Operator', 'Pixel Operator Mono', 'monospace', 'sans-serif', 'serif'];
+  const fontSelects = new Set();
+  // Font loading lives in the dropdown itself. System fonts (Local Font Access,
+  // Chromium only) need a user gesture + permission the first time, so that entry
+  // shows until they are loaded; once permission is granted they load on startup.
+  const LOAD_SYSTEM = '\u0000load-system', LOAD_FILE = '\u0000load-file';
+  const systemFontsSupported = typeof queryLocalFonts === 'function';
+  let systemFontsLoaded = false;
+  let fontFileTarget = null; // the select that opened the file picker
+
+  function fontSelect(value, onChange) {
+    const sel = document.createElement('select');
+    let current = value;
+    const fill = () => {
+      sel.innerHTML = '';
+      for (const f of FONTS) sel.add(new Option(f, f));
+      const sep = new Option('──────────', ''); sep.disabled = true; sel.add(sep);
+      if (systemFontsSupported && !systemFontsLoaded) sel.add(new Option('Load system fonts…', LOAD_SYSTEM));
+      sel.add(new Option('Load font file…', LOAD_FILE));
+      sel.value = current;
+    };
+    fill();
+    sel.refresh = fill;
+    sel.choose = (name) => { current = name; sel.value = name; onChange(name); };
+    sel.addEventListener('change', () => {
+      const v = sel.value;
+      sel.value = current; // actions never stay selected
+      if (v === LOAD_SYSTEM) loadSystemFonts(true);
+      else if (v === LOAD_FILE) { fontFileTarget = sel; $('fontfile').click(); }
+      else sel.choose(v);
+    });
+    fontSelects.add(sel);
+    return sel;
+  }
+  function addFontNames(names) {
+    let added = 0;
+    for (const n of names) if (!FONTS.includes(n)) { FONTS.push(n); added++; }
+    for (const s of fontSelects) s.refresh();
+    return added;
+  }
+  await Promise.all([
+    registerBundledFonts(),
+    registerFont('monospace'), registerFont('sans-serif'), registerFont('serif'),
+  ].map((p) => Promise.resolve(p).catch((e) => {
+    console.warn('font failed:', e);
+    msg(`Font failed to load: ${e.message}`, 'err');
+  })));
+
+  applyWidth(576);
+  window.addEventListener('resize', relayout);
+
+  function applyWidth(w) {
+    const previous = doc.width;
+    doc.width = w;
+    for (const it of items) it.block.width = w;
+    try {
+      doc.validate();
+      for (const it of items) it.block.validate();
+      $('paper').style.width = w + 'px';
+      for (const it of items) rerender(it);
+    } catch (error) {
+      doc.width = previous;
+      for (const it of items) it.block.width = previous;
+      $('paper').style.width = previous + 'px';
+      $('width').value = previous;
+      for (const it of items) rerender(it);
+      msg(error.message, 'err');
+      return;
+    }
+    const fi = $('footinfo'); if (fi) fi.textContent = `${w} dots / ${(w / 8).toFixed(0)}mm / 203dpi`;
+    relayout(); scheduleRelayout();
+  }
+
+  function rerender(item) {
+    item.block.validate();
+    const fresh = item.block.render();
+    item.canvasEl.replaceWith(fresh);
+    item.canvasEl = fresh;
+    scheduleRelayout();
+  }
+
+  // ---- Layout: place each control card beside its preview element ----
+  // Cards are absolute in #lane. A card wants to sit at its preview element's top;
+  // when elements are too dense to fit every card, later cards are pushed into a
+  // "dense zone" (stacked) and the connector line shows the offset.
+  function relayout() {
+    if (!items.length) { $('wires').innerHTML = ''; lane.style.minHeight = ''; return; }
+    const laneRect = lane.getBoundingClientRect();
+    const workRect = work.getBoundingClientRect();
+    const paperRight = $('paper').getBoundingClientRect().right;
+    const GAP = 12;
+    const wires = [];
+    let prevBottom = 0;
+    for (const it of items) {
+      const c = it.canvasEl.getBoundingClientRect();
+      const desired = Math.max(0, c.top - laneRect.top);       // aligned to preview top
+      const placed = Math.max(desired, prevBottom ? prevBottom + GAP : 0);
+      it.card.style.top = placed + 'px';
+      prevBottom = placed + it.card.offsetHeight;
+      // Connector, in #work coordinates (the SVG covers #work).
+      wires.push({
+        sx: paperRight - workRect.left, sy: c.top - workRect.top + 8,
+        ex: laneRect.left - workRect.left, ey: placed + (laneRect.top - workRect.top) + 8,
+      });
+    }
+    lane.style.minHeight = prevBottom + 'px';
+    drawWires(wires, workRect);
+  }
+
+  function drawWires(wires, workRect) {
+    const svg = $('wires');
+    const css = getComputedStyle(document.documentElement);
+    const line = css.getPropertyValue('--line').trim() || '#888';
+    const bw = css.getPropertyValue('--bw').trim() || '1px';
+    svg.setAttribute('viewBox', `0 0 ${workRect.width} ${workRect.height}`);
+    svg.innerHTML = wires.map(({ sx, sy, ex, ey }) => {
+      const midX = sx + (ex - sx) * 0.5;
+      return `<polyline points="${sx},${sy} ${midX},${sy} ${midX},${ey} ${ex},${ey}" ` +
+        `fill="none" stroke="${line}" stroke-width="${parseFloat(bw) || 1}" />` +
+        `<rect x="${sx - 2}" y="${sy - 2}" width="4" height="4" fill="${line}" />`;
+    }).join('');
+  }
+
+  function field(labelText, control) {
+    const l = document.createElement('label');
+    const s = document.createElement('span');
+    s.textContent = labelText;
+    l.append(s, control);
+    return l;
+  }
+
+  // ---- Drag to reorder — the handle is on the CARD (module), not the preview ----
+  // `items` is the source of truth for order; applyOrder() pushes it to the DOM
+  // and the document, so previews and chain always follow the cards.
+  let dragItem = null;
+
+  function grip(item, title) {
+    const g = document.createElement('div');
+    g.className = 'grip';
+    g.draggable = true;
+    const h = document.createElement('h2'); h.textContent = title;
+    g.append(h);
+    g.addEventListener('dragstart', (e) => {
+      dragItem = item;
+      item.card.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+      // Firefox needs data set for a drag to start.
+      try { e.dataTransfer.setData('text/plain', ''); } catch {}
+    });
+    g.addEventListener('dragend', () => {
+      item.card.classList.remove('dragging');
+      dragItem = null;
+      relayout();
+    });
+    return g;
+  }
+
+  // Insertion index = how many non-dragged cards sit above the pointer.
+  function targetIndexFromY(clientY) {
+    const laneTop = lane.getBoundingClientRect().top;
+    const y = clientY - laneTop;
+    let idx = 0;
+    for (const it of items) {
+      if (it === dragItem) continue;
+      const top = parseFloat(it.card.style.top) || 0;
+      if (y > top + it.card.offsetHeight / 2) idx++;
+    }
+    return idx;
+  }
+
+  work.addEventListener('dragover', (e) => {
+    if (!dragItem) return;              // let image drops through untouched
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    const from = items.indexOf(dragItem);
+    const to = targetIndexFromY(e.clientY);
+    if (to !== from && to >= 0 && to < items.length) {
+      items.splice(to, 0, items.splice(from, 1)[0]);
+      applyOrder();                      // live feedback while dragging
+    }
+  });
+  work.addEventListener('drop', (e) => { if (dragItem) e.preventDefault(); });
+
+  // Push the `items` order to the preview stack and the document chain.
+  function applyOrder() {
+    for (const it of items) stack.appendChild(it.canvasEl); // re-append = reorder
+    doc.components.length = 0;
+    for (const it of items) doc.components.push(it.block);
+    relayout();
+  }
+
+  // Duplicate + Remove, per card. Duplicate rebuilds the same component type from
+  // a copy of its current opts and drops it directly after the original.
+  function cardActions(item, block, card) {
+    const row = document.createElement('div');
+    row.className = 'actions';
+
+    const dup = document.createElement('button');
+    dup.textContent = 'Duplicate';
+    dup.addEventListener('click', () => {
+      const adder = ADDERS[block.constructor.name];
+      if (!adder) return;
+      const clone = new block.constructor({ ...block.opts, width: doc.width });
+      adder(clone);                                     // appends at the end…
+      const from = items.length - 1;
+      const to = items.indexOf(item) + 1;               // …then move it after the original
+      if (to !== from) items.splice(to, 0, items.splice(from, 1)[0]);
+      applyOrder(); scheduleRelayout();
+    });
+
+    const rm = document.createElement('button');
+    rm.className = 'danger'; rm.textContent = 'Remove';
+    rm.addEventListener('click', () => {
+      item.canvasEl.remove(); card.remove();
+      sizeWatcher.unobserve(card);
+      const i = items.indexOf(item); if (i >= 0) items.splice(i, 1);
+      const di = doc.components.indexOf(block); if (di >= 0) doc.components.splice(di, 1);
+      relayout(); scheduleRelayout();
+      updateActions();
+    });
+
+    row.append(dup, rm);
+    return row;
+  }
+
+  const fmtNum = (v) => (Number.isInteger(v) ? String(v) : String(Math.round(v * 100) / 100));
+
+  // Reusable unit-aware control: label + slider + editable number + unit, with an
+  // optional mm read-out (8 dots = 1 mm). Used everywhere a value is tuned.
+  function unitSlider({ label, value, min, max, step = 1, unit = '', mm = false, onInput }) {
+    const row = document.createElement('label');
+    row.className = 'uslider';
+    const name = document.createElement('span'); name.textContent = label;
+    const range = document.createElement('input');
+    range.type = 'range'; range.min = min; range.max = max; range.step = step; range.value = value;
+    const num = document.createElement('input');
+    num.type = 'text'; num.className = 'numin'; num.value = fmtNum(value);
+    const suf = document.createElement('span'); suf.className = 'unit';
+    const suffix = (v) => { suf.textContent = `${unit}${mm ? ` ${(v / 8).toFixed(1)}mm` : ''}`; };
+    let current = value;
+    const sync = (v) => {
+      range.value = Math.min(max, Math.max(min, v));
+      num.value = fmtNum(v);
+      suffix(v);
+    };
+    const apply = (v) => {
+      // The SLIDER is bounded, but a typed value may go past it (offsets/percent
+      // often need larger numbers). The slider just pins to its range.
+      try {
+        onInput(v);
+        current = v;
+        sync(v);
+      } catch (error) {
+        sync(current);
+        msg(error.message, 'err');
+      }
+    };
+    range.addEventListener('input', () => apply(parseFloat(range.value)));
+    num.addEventListener('change', () => { const v = parseFloat(num.value); if (!isNaN(v)) apply(v); else sync(current); });
+    num.addEventListener('keydown', (e) => { if (e.key === 'Enter') num.blur(); });
+    suffix(value);
+    row.setValue = (v) => { current = v; sync(v); };
+    row.append(name, range, num, suf);
+    return row;
+  }
+
+  // Bind a unit slider to a component opt.
+  function optSlider(item, label, key, cfg) {
+    return unitSlider({ label, value: item.block.opts[key] ?? cfg.min, ...cfg, onInput: (v) => {
+      const previous = item.block.opts[key];
+      item.block.opts[key] = v;
+      try { rerender(item); }
+      catch (error) { item.block.opts[key] = previous; throw error; }
+    } });
+  }
+
+  function selectField(item, label, key, options) {
+    const sel = document.createElement('select');
+    for (const o of options) sel.add(new Option(o, o));
+    sel.value = item.block.opts[key];
+    sel.addEventListener('change', () => { item.block.opts[key] = sel.value; rerender(item); });
+    return field(label, sel);
+  }
+
+  // A click/drop zone that loads an image into block.opts.src.
+  function imageDrop(item) {
+    const zone = document.createElement('div');
+    zone.className = 'drop';
+    zone.textContent = 'Drop image or click';
+    const file = document.createElement('input');
+    file.type = 'file'; file.accept = 'image/*'; file.style.display = 'none';
+    zone.appendChild(file);
+    const load = (f) => {
+      const img = new Image();
+      img.onload = () => { item.block.opts.src = img; zone.firstChild.textContent = f.name; rerender(item); };
+      img.src = URL.createObjectURL(f);
+    };
+    zone.addEventListener('click', () => file.click());
+    file.addEventListener('change', (e) => { if (e.target.files[0]) load(e.target.files[0]); });
+    ['dragover', 'dragenter'].forEach((ev) => zone.addEventListener(ev, (e) => { e.preventDefault(); zone.classList.add('over'); }));
+    ['dragleave', 'drop'].forEach((ev) => zone.addEventListener(ev, (e) => { e.preventDefault(); zone.classList.remove('over'); }));
+    zone.addEventListener('drop', (e) => { const f = e.dataTransfer.files[0]; if (f && f.type.startsWith('image/')) load(f); });
+    return zone;
+  }
+
+  // Common mount: add block to the doc (stamps width + spacing), render, build the
+  // control card, wire the remove button. buildFields fills in per-type controls.
+  function mount(block, title, buildFields) {
+    doc.add(block);                 // stamps width + spacing BEFORE first render
+    const canvasEl = block.render();
+    stack.appendChild(canvasEl);
+    const card = document.createElement('div');
+    card.className = 'card';
+    const item = { block, canvasEl, card };
+    card.appendChild(grip(item, title));   // hatched handle = the drag target
+    if (buildFields) buildFields(item);
+    card.appendChild(cardActions(item, block, card));
+    lane.appendChild(card);
+    items.push(item);
+    sizeWatcher.observe(card);
+    relayout(); scheduleRelayout();
+    updateActions();
+  }
+
+  function addText(existing) {
+    const block = existing || new TextBlock({ width: doc.width, text: 'New text — edit me →', font: 'Pixel Operator', size: 16, align: 'left', bold: false });
+    mount(block, 'Text', (item) => {
+      const ta = document.createElement('textarea'); ta.value = block.opts.text;
+      ta.addEventListener('input', () => { block.opts.text = ta.value; rerender(item); });
+
+      const fontSel = fontSelect(block.opts.font, (v) => { block.opts.font = v; rerender(item); });
+
+      const alignSel = document.createElement('select');
+      for (const a of ['left', 'center', 'right']) alignSel.add(new Option(a, a));
+      alignSel.value = block.opts.align;   // reflect current opts (matters for duplicates)
+      alignSel.addEventListener('change', () => { block.opts.align = alignSel.value; rerender(item); });
+
+      const boldIn = document.createElement('input'); boldIn.type = 'checkbox';
+      boldIn.checked = !!block.opts.bold;
+      boldIn.addEventListener('change', () => { block.opts.bold = boldIn.checked; rerender(item); });
+
+      item.card.append(field('Text', ta), field('Font', fontSel),
+        optSlider(item, 'Size', 'size', { min: 8, max: 72, unit: 'px' }),
+        field('Align', alignSel), field('Bold', boldIn));
+    });
+  }
+
+  function addCut(existing) {
+    mount(existing || new CutBlock({ width: doc.width }), 'Cut', (item) => {
+      const p = document.createElement('p'); p.className = 'hint';
+      p.textContent = 'Cuts the paper here. Add as many as you like.';
+      item.card.appendChild(p);
+    });
+  }
+
+  function addSpacer(existing) {
+    mount(existing || new SpacerBlock({ width: doc.width, height: 24 }), 'Spacer', (item) => {
+      item.card.appendChild(optSlider(item, 'Height', 'height', { min: 4, max: 400, step: 4, unit: 'dots', mm: true }));
+    });
+  }
+
+  function addHr(existing) {
+    mount(existing || new HrBlock({ width: doc.width, thickness: 4, dashOn: 0, dashOff: 0 }), 'HR', (item) => {
+      item.card.append(
+        optSlider(item, 'Weight', 'thickness', { min: 1, max: 20, unit: 'dots' }),
+        optSlider(item, 'Dash', 'dashOn', { min: 0, max: 40, unit: 'dots' }),
+        optSlider(item, 'Gap', 'dashOff', { min: 0, max: 40, unit: 'dots' }),
+      );
+    });
+  }
+
+  function addTable(existing) {
+    const sample = 'Item,Qty,Price\nWidget,2,$3.50\nGizmo,1,$12.00\nLong-named thing,10,$0.99';
+    const block = existing || new TableBlock({ width: doc.width, csv: sample, font: 'Pixel Operator', size: 16, header: true, border: true, align: 'left', widths: null });
+    mount(block, 'Table', (item) => {
+      const ta = document.createElement('textarea');
+      ta.value = block.opts.csv; ta.style.fontFamily = 'monospace'; ta.style.minHeight = '90px';
+      ta.addEventListener('input', () => {
+        const previous = block.opts.csv;
+        block.opts.csv = ta.value;
+        try { rerender(item); }
+        catch (error) { block.opts.csv = previous; msg(error.message, 'err'); }
+      });
+
+      const widths = document.createElement('input');
+      widths.type = 'text'; widths.placeholder = 'e.g. 3,1,1 (blank = equal)';
+      if (Array.isArray(block.opts.widths)) widths.value = block.opts.widths.join(',');
+      widths.addEventListener('input', () => {
+        const parts = widths.value.split(',').map((n) => parseFloat(n)).filter((n) => !isNaN(n));
+        const previous = block.opts.widths;
+        block.opts.widths = parts.length ? parts : null;
+        try { rerender(item); }
+        catch (error) { block.opts.widths = previous; msg(error.message, 'err'); }
+      });
+
+      const headerCb = document.createElement('input'); headerCb.type = 'checkbox'; headerCb.checked = block.opts.header !== false;
+      headerCb.addEventListener('change', () => { block.opts.header = headerCb.checked; rerender(item); });
+      const borderCb = document.createElement('input'); borderCb.type = 'checkbox'; borderCb.checked = block.opts.border !== false;
+      borderCb.addEventListener('change', () => { block.opts.border = borderCb.checked; rerender(item); });
+
+      item.card.append(
+        field('CSV', ta),
+        field('Font', fontSelect(block.opts.font, (v) => { block.opts.font = v; rerender(item); })),
+        optSlider(item, 'Size', 'size', { min: 8, max: 40, unit: 'px' }),
+        field('Widths', widths),
+        selectField(item, 'Align', 'align', ['left', 'center', 'right']),
+        field('Header', headerCb),
+        field('Border', borderCb),
+      );
+    });
+  }
+
+  function addCalibration(existing) {
+    const block = existing || new CalibrationBlock({ width: doc.width });
+    mount(block, 'Calibration', (item) => {
+      const p = document.createElement('p'); p.className = 'hint';
+      p.textContent = 'Ruler, dither + gamma ramps, font samples. Print and compare to this preview.';
+      item.card.append(p);
+    });
+  }
+
+  function addQr(existing) {
+    const block = existing || new QrBlock({ width: doc.width, data: 'https://hotspring.example', ecl: 'M', moduleSize: 0, align: 'center' });
+    mount(block, 'QR', (item) => {
+      const ta = document.createElement('textarea');
+      ta.value = block.opts.data;
+      ta.addEventListener('input', () => { block.opts.data = ta.value; rerender(item); });
+      item.card.append(
+        field('Data', ta),
+        selectField(item, 'ECC', 'ecl', ['L', 'M', 'Q', 'H']),
+        optSlider(item, 'Module', 'moduleSize', { min: 0, max: 16, unit: 'px' }),
+        selectField(item, 'Align', 'align', ['left', 'center', 'right']),
+      );
+    });
+  }
+
+  function addImage(existing) {
+    const block = existing || new ImageBlock({
+      width: doc.width, scale: 'fit', height: 0, offsetX: 0, offsetY: 0,
+      algo: 'atkinson', threshold: 128, brightness: 0, contrast: 1, gamma: 1, sharpen: 0,
+    });
+    mount(block, 'Image', (item) => {
+      item.card.appendChild(imageDrop(item));
+
+      // Sizing: Fit vs a percentage of natural size (with height + offsets).
+      const scaleSel = document.createElement('select');
+      for (const o of ['fit', 'percent']) scaleSel.add(new Option(o, o));
+      scaleSel.value = block.opts.scale === 'fit' ? 'fit' : 'percent';
+      const custom = document.createElement('div');
+      let lastPct = typeof block.opts.scale === 'number' ? block.opts.scale : 100;
+      const pctRow = unitSlider({
+        label: 'Percent', value: lastPct, min: 10, max: 300, step: 5, unit: '%',
+        onInput: (v) => { lastPct = v; block.opts.scale = v; rerender(item); },
+      });
+      custom.append(
+        pctRow,
+        optSlider(item, 'Height', 'height', { min: 0, max: 800, step: 4, unit: 'dots', mm: true }),
+        optSlider(item, 'Offset X', 'offsetX', { min: -doc.width, max: doc.width, step: 4, unit: 'dots', mm: true }),
+        optSlider(item, 'Offset Y', 'offsetY', { min: -400, max: 400, step: 4, unit: 'dots', mm: true }),
+      );
+      const syncCustom = () => { custom.style.display = scaleSel.value === 'percent' ? '' : 'none'; };
+      scaleSel.addEventListener('change', () => {
+        block.opts.scale = scaleSel.value === 'fit' ? 'fit' : lastPct;
+        syncCustom(); rerender(item);
+      });
+      syncCustom();
+      item.card.append(field('Scale', scaleSel), custom);
+
+      // Dithering + tone — values are the real units the pipeline uses.
+      item.card.append(
+        selectField(item, 'Dither', 'algo', ['atkinson', 'floyd', 'ordered', 'none']),
+        optSlider(item, 'Threshold', 'threshold', { min: 32, max: 224, unit: '' }),
+        optSlider(item, 'Brightness', 'brightness', { min: -128, max: 128, unit: '' }),
+        optSlider(item, 'Contrast', 'contrast', { min: 0.2, max: 2, step: 0.05, unit: '×' }),
+        optSlider(item, 'Gamma', 'gamma', { min: 0.2, max: 3, step: 0.1, unit: 'γ' }),
+        optSlider(item, 'Sharpen', 'sharpen', { min: 0, max: 3, step: 0.1, unit: '' }),
+      );
+    });
+  }
+
+  // Add: one button opens a menu; picking an entry appends that component.
+  const COMPONENTS = [
+    ['Text', addText], ['Image', addImage], ['QR', addQr], ['Table', addTable],
+    ['HR', addHr], ['Spacer', addSpacer], ['Cut', addCut], ['Calibration', addCalibration],
+  ];
+  // Block class name -> the function that mounts it, so Duplicate can rebuild
+  // any component type from a copy of its opts.
+  const ADDERS = {
+    TextBlock: addText, ImageBlock: addImage, QrBlock: addQr, TableBlock: addTable,
+    HrBlock: addHr, SpacerBlock: addSpacer, CutBlock: addCut, CalibrationBlock: addCalibration,
+  };
+
+  const STARTER_TEMPLATE = `import { Document } from 'hotspring';
+
+const doc = new Document({ width: 576, spacing: 6 });
+doc
+  .text("HOTSPRING.js", { font: "Pixel Operator", size: 32, align: "center", bold: true, pad: 8 })
+  .text("A JS utility for thermal printers", { font: "Pixel Operator", size: 16, align: "center", bold: false, pad: 8 })
+  .hr({ thickness: 2, dashOn: 0, dashOff: 0, inset: 24 })
+  .text("https://github.com/labofbabel/hotspring", { font: "Pixel Operator", size: 16, align: "center", bold: false, pad: 8 })
+  .spacer(16)
+  .qr("https://github.com/labofbabel/hotspring", { ecl: "M", moduleSize: 4, quiet: 4, align: "center" })
+  .cut();
+
+const bytes = doc.toBytes();`;
+
+  function blockFromTemplate({ method, args }) {
+    if (method === 'text') return new TextBlock({ ...(args[1] || {}), text: args[0] });
+    if (method === 'image') return new ImageBlock({ ...(args[1] || {}) });
+    if (method === 'qr') return new QrBlock({ ...(args[1] || {}), data: args[0] });
+    if (method === 'table') return new TableBlock({ ...(args[1] || {}), csv: args[0] });
+    if (method === 'hr') return new HrBlock({ ...(args[0] || {}) });
+    if (method === 'spacer') return new SpacerBlock({ height: args[0] });
+    if (method === 'cut') return new CutBlock();
+    if (method === 'calibration') return new CalibrationBlock();
+    throw new Error(`Unsupported component: ${method}`);
+  }
+
+  function clearTemplate() {
+    for (const item of items) sizeWatcher.unobserve(item.card);
+    stack.replaceChildren();
+    lane.replaceChildren();
+    items.length = 0;
+    doc.components.length = 0;
+    for (const select of [...fontSelects]) {
+      if (!select.isConnected) fontSelects.delete(select);
+    }
+  }
+
+  function loadTemplateCode(code, { announce = true } = {}) {
+    const parsed = parseTemplateCode(code);
+    const candidate = new Document({ ...parsed.options });
+    if (![384, 512, 576].includes(candidate.width)) {
+      throw new RangeError('The demo supports document widths of 384, 512, or 576 dots');
+    }
+    const blocks = parsed.components.map(blockFromTemplate);
+    for (const block of blocks) candidate.add(block);
+    candidate.toCode(); // validates the complete template before replacing the UI
+
+    clearTemplate();
+    doc.width = candidate.width;
+    doc.spacing = candidate.spacing;
+    doc.cutFeed = candidate.cutFeed;
+    $('width').value = String(doc.width);
+    spacingControl.setValue(doc.spacing);
+    cutFeedControl.setValue(doc.cutFeed);
+    for (const block of blocks) ADDERS[block.constructor.name](block);
+    applyWidth(doc.width);
+    updateActions();
+
+    if (announce) {
+      const images = parsed.components.filter((component) => component.method === 'image').length;
+      msg(
+        `Loaded ${blocks.length} component${blocks.length === 1 ? '' : 's'}.` +
+        (images ? ` Re-add ${images} image source${images === 1 ? '' : 's'} before printing.` : ''),
+        'ok',
+      );
+    }
+  }
+
+  const pasteDialog = $('pastedialog');
+  const pasteCode = $('pastecode');
+  $('paste').addEventListener('click', async () => {
+    $('pasteerror').textContent = '';
+    pasteCode.value = '';
+    pasteDialog.showModal();
+    pasteCode.focus();
+    try {
+      const clipboard = await navigator.clipboard?.readText();
+      if (clipboard && !pasteCode.value) pasteCode.value = clipboard;
+    } catch { /* Manual paste remains available when clipboard permission is denied. */ }
+  });
+  $('cancelpaste').addEventListener('click', () => pasteDialog.close());
+  $('loadcode').addEventListener('click', () => {
+    try {
+      loadTemplateCode(pasteCode.value);
+      pasteDialog.close();
+    } catch (error) {
+      $('pasteerror').textContent = error.message;
+    }
+  });
+  pasteCode.addEventListener('keydown', (event) => {
+    if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') $('loadcode').click();
+  });
+
+  const addMenu = $('addmenu');
+  for (const [label, fn] of COMPONENTS) {
+    const b = document.createElement('button');
+    b.textContent = label;
+    b.addEventListener('click', () => { addMenu.hidden = true; fn(); });
+    addMenu.appendChild(b);
+  }
+  $('add').addEventListener('click', (e) => { e.stopPropagation(); addMenu.hidden = !addMenu.hidden; });
+  document.addEventListener('click', (e) => { if (!addMenu.contains(e.target)) addMenu.hidden = true; });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') addMenu.hidden = true; });
+
+  $('width').addEventListener('change', () => applyWidth(+$('width').value));
+
+  // Global spacing + cut-feed, built from the same unit-slider component.
+  spacingControl = unitSlider({
+      label: 'Spacing', value: 0, min: 0, max: 200, unit: 'dots', mm: true,
+      onInput: (v) => {
+        if (!Number.isInteger(v) || v < 0) throw new RangeError('spacing must be a non-negative integer');
+        const previous = doc.spacing;
+        doc.spacing = v;
+        for (const it of items) it.block.space = v;
+        try {
+          doc.validate();
+          for (const it of items) rerender(it);
+        } catch (error) {
+          doc.spacing = previous;
+          for (const it of items) it.block.space = previous;
+          throw error;
+        }
+      },
+    });
+  cutFeedControl = unitSlider({
+      label: 'Cut feed', value: 120, min: 0, max: 400, step: 4, unit: 'dots', mm: true,
+      onInput: (v) => {
+        if (!Number.isInteger(v) || v < 0) throw new RangeError('cutFeed must be a non-negative integer');
+        doc.cutFeed = v; for (const it of items) it.block.cutFeed = v;
+      }, // print-only, no re-render
+    });
+  $('globals').append(spacingControl, cutFeedControl);
+
+  // --- Printing ---
+  function msg(text, cls = '') { $('msg').className = cls; $('msg').textContent = text; }
+  function formatBytes(bytes) {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KiB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
+  }
+
+  async function apiJson(path, options = {}) {
+    const res = await fetch(`${API}${path}`, options);
+    let data;
+    try { data = await res.json(); }
+    catch { throw new Error(`Server returned ${res.status} without a JSON response`); }
+    if (!res.ok || !data.ok) throw new Error(data.error || `Request failed (${res.status})`);
+    return data;
+  }
+
+  async function sendBytes(bytes) {
+    msg('Sending…');
+    printerState.busy = true;
+    updateActions();
+    try {
+      const d = await apiJson('/print', { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: bytes });
+      applyPrinterStatus(d.status);
+      const number = d.submission.jobId?.match(/-(\d+)$/)?.[1];
+      const job = number ? `job #${number}` : d.submission.jobId || 'new job';
+      msg(
+        `Accepted by CUPS · ${job} · ${formatBytes(d.bytes)}\n` +
+        'Waiting for delivery status; printing is not yet confirmed.',
+        'ok',
+      );
+    } catch (e) {
+      msg(e.message, 'err');
+    } finally {
+      printerState.busy = false;
+      updateActions();
+      refreshStatus();
+    }
+  }
+
+  $('print').addEventListener('click', async () => {
+    if (!doc.components.length) return msg('Nothing to print — add a component.', 'err');
+    let bytes;
+    try { bytes = doc.toBytes(); }
+    catch (error) { return msg(error.message, 'err'); }
+    await sendBytes(bytes);
+  });
+
+  $('reset').addEventListener('click', async () => {
+    msg('Resetting…');
+    printerState.busy = true;
+    updateActions();
+    try {
+      const d = await apiJson('/reset', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+      applyPrinterStatus(d.status);
+      msg('Printer queue reset.', 'ok');
+    } catch (e) {
+      msg(e.message, 'err');
+    } finally {
+      printerState.busy = false;
+      updateActions();
+      refreshStatus();
+    }
+  });
+
+  $('canceljob').addEventListener('click', async () => {
+    const id = printerState.recentJob?.id;
+    if (!id) return;
+    msg(`Canceling ${id}…`);
+    printerState.busy = true;
+    updateActions();
+    try {
+      const d = await apiJson('/cancel', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+      applyPrinterStatus(d.status);
+      msg(`Canceled ${d.jobId}.`, 'ok');
+    } catch (error) {
+      msg(error.message, 'err');
+    } finally {
+      printerState.busy = false;
+      updateActions();
+      refreshStatus();
+    }
+  });
+
+  $('copy').addEventListener('click', async () => {
+    const code = doc.toCode({ width: doc.width });
+    try { await navigator.clipboard.writeText(code); msg('Chain code copied to clipboard.', 'ok'); }
+    catch { msg(code, ''); } // fallback: show it
+  });
+
+  // Export the composited preview as a PNG. It is already 1-bit at print
+  // resolution (1 px = 1 printer dot), so it round-trips exactly — see the
+  // reprint note in the README.
+  $('png').addEventListener('click', () => {
+    if (!doc.components.length) return msg('Nothing to export — add a component.', 'err');
+    const cv = doc.toCanvas();
+    cv.toBlob((blob) => {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `hotspring-${doc.width}dots-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.png`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+      msg(`Exported ${cv.width}x${cv.height} px (1 px = 1 dot).`, 'ok');
+    }, 'image/png');
+  });
+
+  // System fonts: listSystemFonts() resolves to [] if permission is denied.
+  async function loadSystemFonts(interactive) {
+    const sys = await listSystemFonts();
+    systemFontsLoaded = true; // granted or denied, the entry has done its job
+    const n = addFontNames(sys);
+    if (interactive) {
+      msg(sys.length ? `Loaded ${n} system font(s).` : 'System fonts unavailable (permission denied).', sys.length ? 'ok' : 'err');
+    }
+  }
+  if (systemFontsSupported) {
+    try {
+      const { state } = await navigator.permissions.query({ name: 'local-fonts' });
+      if (state === 'granted') await loadSystemFonts(false);
+    } catch { /* permission not queryable; the dropdown entry remains */ }
+  }
+
+  $('fontfile').addEventListener('change', async (e) => {
+    const names = await loadFontFiles([...e.target.files]);
+    e.target.value = '';
+    if (names.length && fontFileTarget) fontFileTarget.choose(names[0]);
+    fontFileTarget = null;
+  });
+
+  async function loadFontFiles(files) {
+    const names = [];
+    for (const f of files) {
+      try { names.push(await registerFontFromFile(f, { grid: /pixel|8/i.test(f.name) ? 8 : 0 })); }
+      catch (err) { msg(`Could not load ${f.name}: ${err.message}`, 'err'); }
+    }
+    if (names.length) { addFontNames(names); msg(`Loaded font(s): ${names.join(', ')}`, 'ok'); }
+    return names;
+  }
+
+  // Drop font files anywhere on the page (image drops are handled per-card).
+  window.addEventListener('dragover', (e) => { if (!dragItem) e.preventDefault(); });
+  window.addEventListener('drop', (e) => {
+    const fonts = [...(e.dataTransfer?.files || [])].filter((f) => /\.(ttf|otf|woff2?)$/i.test(f.name));
+    if (!fonts.length) return;
+    e.preventDefault();
+    loadFontFiles(fonts);
+  });
+
+  $('footinfo').textContent = `${doc.width} dots / ${(doc.width / 8).toFixed(0)}mm / 203dpi`;
+
+  let statusPending = false;
+  function applyPrinterStatus(d) {
+    if (d.apiVersion !== 2) {
+      throw new Error('Print server is out of date — stop it and run npm start again.');
+    }
+    printerState.reachable = true;
+    printerState.configured = !!d.configured;
+    printerState.connected = d.connected ?? null;
+    printerState.offline = !!d.offline;
+    printerState.recentJob = d.recentJob || null;
+
+    const bits = [];
+    if (!d.configured) bits.push('state: thermal-printer queue not configured');
+    else if (d.connected === false) bits.push('state: thermal printer disconnected');
+    else if (d.connected === true) bits.push(`state: connected · ${d.mode}`);
+    else bits.push(`state: connection unknown · ${d.mode}`);
+    if (d.offline && d.connected !== false) bits.push('OFFLINE');
+    if (d.pending) bits.push(`${d.pending} queued`);
+    if (d.recentJob) {
+      const labels = {
+        accepted: 'accepted by CUPS; delivery unconfirmed',
+        queued: 'queued',
+        printing: 'CUPS is sending it',
+        'waiting-for-printer': 'waiting for the disconnected printer',
+        'left-queue': 'left the CUPS queue; delivery unverified',
+        canceled: 'canceled',
+        'canceled-by-reset': 'canceled by queue reset',
+      };
+      bits.push(`${d.recentJob.id || 'recent job'}: ${labels[d.recentJob.state] || d.recentJob.state}`);
+    }
+    if (d.error) bits.push(d.error);
+    $('state').textContent = bits.join('  ·  ');
+    updateActions();
+  }
+
+  async function refreshStatus() {
+    if (statusPending || printerState.busy) return;
+    statusPending = true;
+    try {
+      const d = await apiJson('/status');
+      applyPrinterStatus(d);
+    } catch (error) {
+      printerState.reachable = false;
+      printerState.configured = false;
+      printerState.connected = null;
+      printerState.offline = false;
+      $('state').textContent = `state: server unreachable  ·  ${error.message}`;
+    } finally {
+      statusPending = false;
+      updateActions();
+    }
+  }
+  loadTemplateCode(STARTER_TEMPLATE, { announce: false });
+  refreshStatus();
+  setInterval(refreshStatus, 3000);
+
+  window.doc = doc; // console access
+</script>
+</body>
+</html>
